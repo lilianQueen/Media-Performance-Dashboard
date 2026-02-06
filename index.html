@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ethnicity Matters | Performance Intelligence Hub</title>
+    <!-- Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        input::placeholder { color: rgba(255,255,255,0.3); }
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white !important; }
+            main { padding: 0 !important; }
+            .shadow-sm, .shadow-md, .shadow-lg { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
+            .max-w-7xl { max-width: 100% !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+        const { 
+            BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
+            ResponsiveContainer, LineChart, Line, ComposedChart 
+        } = Recharts;
+
+        // Optimized Icon Helper
+        const Icon = ({ name, size = 16, className = "" }) => {
+            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+        };
+
+        const DEFAULT_DATA = [
+            { id: 1, date: '2023-10-01', brand: 'EcoDrive', vendor: 'Google', tactic: 'Search', region: 'North America', creative: 'Sustainability_v1', budget: 5000, impression: 1050000, click: 12000, reach: 850000, view: 50000 },
+            { id: 2, date: '2023-10-05', brand: 'ITalkBB', vendor: 'Meta', tactic: 'Social', region: 'APAC', creative: 'Global_Connect_v1', budget: 15000, impression: 3200000, click: 85000, reach: 2400000, view: 250000 },
+            { id: 3, date: '2023-10-10', brand: 'LuxeLiving', vendor: 'TradeDesk', tactic: 'Programmatic', region: 'Europe', creative: 'Modern_Comfort', budget: 8000, impression: 2100000, click: 14800, reach: 1800000, view: 800000 }
+        ];
+
+        const App = () => {
+            const [data, setData] = useState(DEFAULT_DATA);
+            const [loading, setLoading] = useState(false);
+            const [sheetUrl, setSheetUrl] = useState('');
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [clientName, setClientName] = useState('');
+            const [groupBy, setGroupBy] = useState('region');
+            const [perfGroupBy, setPerfGroupBy] = useState('region');
+            const [hiddenTiles, setHiddenTiles] = useState([]);
+
+            // Numerical cleaning helper
+            const cleanNum = (val) => {
+                if (val === undefined || val === null || val === '') return 0;
+                const cleaned = val.toString().replace(/[$,%]/g, '').trim();
+                const num = parseFloat(cleaned);
+                return isNaN(num) ? 0 : num;
+            };
+
+            // Formatting Helpers
+            const formatCurrencyWhole = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Math.round(val || 0));
+            const formatNumberWhole = (val) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Math.round(val || 0));
+            const formatCurrency = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(val || 0);
+            const formatNumber = (val) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val || 0);
+            const formatPercent = (val) => (val || 0).toFixed(2) + '%';
+
+            // Sync functionality for Google Sheets CSV
+            const fetchDataFromSheet = async () => {
+                if (!sheetUrl) return;
+                setLoading(true);
+                try {
+                    const csvUrl = sheetUrl.includes('/edit') 
+                        ? sheetUrl.replace(/\/edit.*$/, '/export?format=csv') 
+                        : sheetUrl;
+                    const response = await fetch(csvUrl);
+                    if (!response.ok) throw new Error("Sync failed.");
+                    const text = await response.text();
+                    const rows = text.split('\n').map(row => row.split(','));
+                    const headers = rows[0].map(h => h.trim().toLowerCase());
+                    
+                    const parsedData = rows.slice(1).filter(r => r.length > 1).map((row, idx) => {
+                        const obj = { budget: 0, impression: 0, click: 0, view: 0, reach: 0 };
+                        headers.forEach((header, i) => {
+                            const val = row[i]?.trim();
+                            if (header.includes('date')) obj.date = val;
+                            if (header.includes('brand')) obj.brand = val;
+                            if (header.includes('vendor')) obj.vendor = val;
+                            if (header.includes('tactic')) obj.tactic = val;
+                            if (header.includes('region')) obj.region = val;
+                            if (header.includes('creative')) obj.creative = val;
+                            if (header.includes('impression')) obj.impression = cleanNum(val);
+                            if (header.includes('click')) obj.click = cleanNum(val);
+                            if (header.includes('reach')) obj.reach = cleanNum(val);
+                            if (header.includes('view')) obj.view = cleanNum(val);
+                            if (header.includes('budget') || header.includes('spent')) {
+                                if (header.includes('budget')) obj.budget = cleanNum(val);
+                                else if (!obj.budget) obj.budget = cleanNum(val);
+                            }
+                        });
+                        obj.id = idx;
+                        return obj;
+                    });
+                    if (parsedData.length > 0) setData(parsedData);
+                } catch (e) { 
+                    console.error("Sync Error:", e);
+                } finally { 
+                    setLoading(false); 
+                }
+            };
+
+            const getGroupStats = (dimension) => {
+                const groups = {};
+                data.forEach(item => {
+                    const key = item[dimension] || 'N/A';
+                    if (!groups[key]) groups[key] = { name: key, budget: 0, impression: 0, click: 0, view: 0, reach: 0 };
+                    groups[key].budget += item.budget;
+                    groups[key].impression += item.impression;
+                    groups[key].click += item.click;
+                    groups[key].view += item.view;
+                    groups[key].reach += (item.reach || 0);
+                });
+                return Object.values(groups).map(g => ({
+                    ...g,
+                    ctr: g.impression > 0 ? (g.click / g.impression) * 100 : 0,
+                    vtr: g.impression > 0 ? (g.view / g.impression) * 100 : 0,
+                    cpc: g.click > 0 ? g.budget / g.click : 0,
+                    cpv: g.view > 0 ? g.budget / g.view : 0
+                }));
+            };
+
+            const totals = useMemo(() => {
+                const res = data.reduce((acc, curr) => ({
+                    budget: acc.budget + curr.budget,
+                    impression: acc.impression + curr.impression,
+                    click: acc.click + curr.click,
+                    view: acc.view + curr.view,
+                    reach: acc.reach + (curr.reach || 0)
+                }), { budget: 0, impression: 0, click: 0, view: 0, reach: 0 });
+                return {
+                    ...res,
+                    ctr: res.impression > 0 ? (res.click/res.impression)*100 : 0,
+                    cpc: res.click > 0 ? res.budget/res.click : 0,
+                    vtr: res.impression > 0 ? (res.view/res.impression)*100 : 0,
+                    cpv: res.view > 0 ? res.budget/res.view : 0
+                };
+            }, [data]);
+
+            const timeSeriesData = useMemo(() => {
+                const dates = {};
+                data.forEach(item => {
+                    if (!dates[item.date]) dates[item.date] = { date: item.date, budget: 0, impression: 0, click: 0, view: 0 };
+                    dates[item.date].budget += item.budget;
+                    dates[item.date].impression += item.impression;
+                    dates[item.date].click += item.click;
+                    dates[item.date].view += item.view;
+                });
+                return Object.values(dates).sort((a,b) => new Date(a.date) - new Date(b.date)).map(d => ({
+                    ...d,
+                    ctr: d.impression > 0 ? (d.click / d.impression) * 100 : 0,
+                    vtr: d.impression > 0 ? (d.view / d.impression) * 100 : 0,
+                    cpc: d.click > 0 ? d.budget / d.click : 0,
+                    cpv: d.view > 0 ? d.budget / d.view : 0
+                }));
+            }, [data]);
+
+            const brandStats = useMemo(() => getGroupStats('brand'), [data]);
+            const creativeStats = useMemo(() => getGroupStats('creative'), [data]);
+            const regionStats = useMemo(() => getGroupStats('region'), [data]);
+            const vendorStats = useMemo(() => getGroupStats('vendor'), [data]);
+            const aggImpData = useMemo(() => getGroupStats(groupBy), [data, groupBy]);
+            const aggPerfData = useMemo(() => getGroupStats(perfGroupBy), [data, perfGroupBy]);
+
+            // Lifecycle for Icon rendering
+            useEffect(() => {
+                if (window.lucide) window.lucide.createIcons();
+            }, [activeTab, data, hiddenTiles, groupBy, perfGroupBy]);
+
+            const isVisible = (id) => !hiddenTiles.includes(id);
+
+            return (
+                <div className="min-h-screen flex flex-col bg-slate-50">
+                    <header className="bg-[#ff1c1c] px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-lg text-white no-print">
+                        <div className="flex items-center gap-6">
+                            <span className="text-xl font-bold italic tracking-tight shrink-0">Ethnicity Matters</span>
+                            <div className="h-8 w-px bg-white/20 hidden lg:block" />
+                            <div className="flex flex-col min-w-[320px] bg-white/10 p-2 px-3 rounded-xl border border-white/20 hover:bg-white/15 transition-all group">
+                                <label className="text-[10px] font-black text-red-100 uppercase tracking-widest flex items-center gap-1.5 mb-1 group-focus-within:text-white transition-colors">
+                                    <Icon name="pen-line" size={10} /> Client and Campaign
+                                </label>
+                                <input type="text" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="[REQUIRED: ENTER NAME HERE]" className="bg-transparent text-sm font-black text-white outline-none border-b border-dashed border-white/40 focus:border-white focus:border-solid py-0.5 uppercase tracking-tight" />
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <button onClick={fetchDataFromSheet} className="bg-white/10 hover:bg-white/20 p-2 rounded-xl border border-white/20 transition-all"><Icon name="refresh-cw" className={loading ? "animate-spin" : ""} /></button>
+                            <nav className="flex bg-black/10 p-1 rounded-xl">
+                                <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-white text-[#ff1c1c]' : 'text-white'}`}><Icon name="trending-up" /></button>
+                                <button onClick={() => setActiveTab('settings')} className={`p-2 rounded-lg transition-colors ${activeTab === 'settings' ? 'bg-white text-[#ff1c1c]' : 'text-white'}`}><Icon name="settings" /></button>
+                            </nav>
+                        </div>
+                    </header>
+
+                    <main className="p-6 flex-1 w-full overflow-y-auto">
+                        <div className="max-w-7xl mx-auto space-y-8">
+                            <div className="flex items-center justify-between">
+                                <div className="border-l-4 border-[#ff1c1c] pl-4">
+                                    <h2 className="text-3xl font-black uppercase text-slate-800 tracking-tight">{clientName || 'Campaign Overview'}</h2>
+                                    <p className="text-slate-400 font-medium text-sm">Campaign Intelligence Engine</p>
+                                </div>
+                                {hiddenTiles.length > 0 && (
+                                    <button onClick={() => setHiddenTiles([])} className="no-print flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold shadow-lg hover:bg-slate-700 transition-all">
+                                        <Icon name="rotate-ccw" size={12} /> Restore All
+                                    </button>
+                                )}
+                            </div>
+
+                            {activeTab === 'dashboard' && (
+                                <div className="space-y-10 pb-20">
+                                    {/* Row 1: Primary Metrics - Whole Numbers */}
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                        {[
+                                            { id: 'v1', label: 'Budget', val: formatCurrencyWhole(totals.budget), color: 'text-blue-600', icon: 'dollar-sign' },
+                                            { id: 'v2', label: 'Impression', val: formatNumberWhole(totals.impression), color: 'text-emerald-600', icon: 'globe' },
+                                            { id: 'v3', label: 'Clicks', val: formatNumberWhole(totals.click), color: 'text-amber-600', icon: 'mouse-pointer-2' },
+                                            { id: 'v5', label: 'Reach', val: formatNumberWhole(totals.reach), color: 'text-[#ff1c1c]', icon: 'users' },
+                                            { id: 'v4', label: 'Views', val: formatNumberWhole(totals.view), color: 'text-purple-600', icon: 'eye' }
+                                        ].map(c => isVisible(c.id) && (
+                                            <div key={c.id} className="group relative bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                                <button onClick={() => setHiddenTiles([...hiddenTiles, c.id])} className="no-print absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all"><Icon name="trash-2" size={12}/></button>
+                                                <div className="flex items-center gap-2 mb-3 text-slate-300"><Icon name={c.icon} size={14} /><p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">{c.label}</p></div>
+                                                <h3 className={`text-xl font-black ${c.color}`}>{c.val}</h3>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Row 2: Efficiency Metrics - Precision */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        {[
+                                            { id: 'e1', label: 'Avg CTR', val: formatPercent(totals.ctr), color: 'text-orange-600', icon: 'target' },
+                                            { id: 'e2', label: 'Avg CPC', val: formatCurrency(totals.cpc), color: 'text-indigo-600', icon: 'zap' },
+                                            { id: 'e3', label: 'Avg VTR', val: formatPercent(totals.vtr), color: 'text-pink-600', icon: 'activity' },
+                                            { id: 'e4', label: 'Avg CPV', val: formatCurrency(totals.cpv), color: 'text-teal-600', icon: 'percent' }
+                                        ].map(c => isVisible(c.id) && (
+                                            <div key={c.id} className="group relative bg-white p-6 rounded-2xl shadow-sm border border-slate-200 border-t-4 border-t-slate-200">
+                                                <button onClick={() => setHiddenTiles([...hiddenTiles, c.id])} className="no-print absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all"><Icon name="trash-2" size={12}/></button>
+                                                <div className="flex items-center gap-2 mb-3 text-slate-300"><Icon name={c.icon} size={14} /><p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">{c.label}</p></div>
+                                                <h3 className={`text-xl font-black ${c.color}`}>{c.val}</h3>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Scalable Trend Rows */}
+                                    <div className="space-y-6">
+                                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                            <h3 className="font-bold text-xs uppercase text-slate-500 flex items-center gap-2 mb-6"><Icon name="activity" className="text-[#ff1c1c]" /> Efficiency Trends (CPC & CTR)</h3>
+                                            <div className="h-80"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={timeSeriesData}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="date" tick={{fontSize: 10}} axisLine={false} /><YAxis yAxisId="left" tick={{fontSize: 10}} axisLine={false} /><YAxis yAxisId="right" orientation="right" tick={{fontSize: 10}} axisLine={false} /><Tooltip formatter={(v, n) => [n.toLowerCase().includes('cpc') ? formatCurrency(v) : formatPercent(v), n]} /><Legend /><Bar yAxisId="left" dataKey="cpc" name="CPC ($)" fill="#b91c1c" radius={[4,4,0,0]} barSize={40} /><Line yAxisId="right" type="monotone" dataKey="ctr" name="CTR (%)" stroke="#f59e0b" strokeWidth={3} dot={{r: 4, fill: '#f59e0b'}} /></ComposedChart></ResponsiveContainer></div>
+                                        </div>
+                                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                            <h3 className="font-bold text-xs uppercase text-slate-500 flex items-center gap-2 mb-6"><Icon name="eye" className="text-purple-600" /> Video Performance Trends (CPV & VTR)</h3>
+                                            <div className="h-80"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={timeSeriesData}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="date" tick={{fontSize: 10}} axisLine={false} /><YAxis yAxisId="left" tick={{fontSize: 10}} axisLine={false} /><YAxis yAxisId="right" orientation="right" tick={{fontSize: 10}} axisLine={false} /><Tooltip formatter={(v, n) => [n.toLowerCase().includes('cpv') ? formatCurrency(v) : formatPercent(v), n]} /><Legend /><Bar yAxisId="left" dataKey="cpv" name="CPV ($)" fill="#4338ca" radius={[4,4,0,0]} barSize={40} /><Line yAxisId="right" type="monotone" dataKey="vtr" name="VTR (%)" stroke="#ec4899" strokeWidth={3} dot={{r: 4, fill: '#ec4899'}} /></ComposedChart></ResponsiveContainer></div>
+                                        </div>
+                                    </div>
+
+                                    {/* Categorical Analysis Sections */}
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                        <div className="flex items-center justify-between mb-6">
+                                            <h3 className="font-bold text-xs uppercase text-slate-500 flex items-center gap-2"><Icon name="bar-chart-3" className="text-emerald-600" /> Budget vs Impression Analysis</h3>
+                                            <div className="flex bg-slate-100 p-1 rounded-lg no-print">
+                                                {['brand', 'region', 'tactic'].map(g => (<button key={g} onClick={() => setGroupBy(g)} className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all ${groupBy === g ? 'bg-white text-[#ff1c1c] shadow-sm' : 'text-slate-400'}`}>{g.toUpperCase()}</button>))}
+                                            </div>
+                                        </div>
+                                        <div className="h-80"><ResponsiveContainer width="100%" height="100%"><BarChart data={aggImpData}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" tick={{fontSize: 10}} axisLine={false} /><YAxis yAxisId="left" tick={{fontSize: 10}} axisLine={false} tickFormatter={(val) => `$${val/1000}k`} /><YAxis yAxisId="right" orientation="right" tick={{fontSize: 10}} axisLine={false} /><Tooltip formatter={(v, n) => [n.toLowerCase().includes('budget') ? formatCurrency(v) : formatNumber(v), n]} /><Bar yAxisId="left" dataKey="budget" name="Budget ($)" fill="#ff1c1c" radius={[4,4,0,0]} /><Bar yAxisId="right" dataKey="impression" name="Impressions" fill="#10b981" radius={[4,4,0,0]} /></BarChart></ResponsiveContainer></div>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                        <div className="flex items-center justify-between mb-6">
+                                            <h3 className="font-bold text-xs uppercase text-slate-500 flex items-center gap-2"><Icon name="percent" className="text-[#ff1c1c]" /> Budget vs Performance Analysis (CTR & VTR)</h3>
+                                            <div className="flex bg-slate-100 p-1 rounded-lg no-print">
+                                                {['brand', 'region', 'tactic'].map(g => (<button key={g} onClick={() => setPerfGroupBy(g)} className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all ${perfGroupBy === g ? 'bg-white text-[#ff1c1c] shadow-sm' : 'text-slate-400'}`}>{g.toUpperCase()}</button>))}
+                                            </div>
+                                        </div>
+                                        <div className="h-80">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <ComposedChart data={aggPerfData}>
+                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                    <XAxis dataKey="name" tick={{fontSize: 10}} axisLine={false} />
+                                                    <YAxis yAxisId="left" tick={{fontSize: 10}} axisLine={false} label={{ value: 'Spend ($)', angle: -90, position: 'insideLeft', fontSize: 10 }} tickFormatter={(val) => `$${val}`} />
+                                                    <YAxis yAxisId="right" orientation="right" tick={{fontSize: 10}} axisLine={false} label={{ value: 'Eng %', angle: 90, position: 'insideRight', fontSize: 10 }} />
+                                                    <Tooltip formatter={(value, name) => [name.toLowerCase().includes('budget') ? formatCurrency(value) : formatPercent(value), name]} />
+                                                    <Legend iconType="circle" />
+                                                    <Bar yAxisId="left" dataKey="budget" name="Budget ($)" fill="#fee2e2" radius={[4, 4, 0, 0]} barSize={50} />
+                                                    <Line yAxisId="right" type="monotone" dataKey="ctr" name="CTR (%)" stroke="#f59e0b" strokeWidth={3} dot={{r: 4}} />
+                                                    <Line yAxisId="right" type="monotone" dataKey="vtr" name="VTR (%)" stroke="#ec4899" strokeWidth={3} dot={{r: 4}} />
+                                                </ComposedChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </div>
+
+                                    {/* Detailed Data Tables */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                            <div className="flex items-center gap-2 mb-4 text-[#ff1c1c]"><Icon name="tags" /><h3 className="text-xs font-bold uppercase text-slate-500">Performance by Brand</h3></div>
+                                            <div className="overflow-x-auto"><table className="w-full text-[11px]"><thead className="border-b text-slate-400"><tr><th className="text-left py-2 font-bold uppercase">Brand</th><th className="text-right font-bold uppercase">CTR</th><th className="text-right font-bold uppercase">CPC</th><th className="text-right font-bold uppercase">VTR</th><th className="text-right font-bold uppercase">CPV</th></tr></thead><tbody className="divide-y">{brandStats.map((b,i) => (<tr key={i} className="hover:bg-slate-50"><td className="py-2.5 font-bold text-slate-700">{b.name}</td><td className="text-right font-bold text-blue-600">{formatPercent(b.ctr)}</td><td className="text-right text-slate-500">{formatCurrency(b.cpc)}</td><td className="text-right font-bold text-purple-600">{formatPercent(b.vtr)}</td><td className="text-right text-teal-600 font-bold">{formatCurrency(b.cpv)}</td></tr>))}</tbody></table></div>
+                                        </div>
+                                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                            <div className="flex items-center gap-2 mb-4 text-[#ff1c1c]"><Icon name="clapperboard" /><h3 className="text-xs font-bold uppercase text-slate-500">Performance by Creative</h3></div>
+                                            <div className="overflow-x-auto"><table className="w-full text-[11px]"><thead className="border-b text-slate-400"><tr><th className="text-left py-2 font-bold uppercase">Asset</th><th className="text-right font-bold uppercase">CTR (%)</th><th className="text-right font-bold uppercase">CPC</th><th className="text-right font-bold uppercase">VTR (%)</th><th className="text-right font-bold uppercase">CPV</th></tr></thead><tbody className="divide-y">{creativeStats.map((c,i) => (<tr key={i} className="hover:bg-slate-50"><td className="py-2.5 font-bold text-slate-700 truncate max-w-[150px]">{c.name}</td><td className="text-right font-bold text-blue-600">{formatPercent(c.ctr)}</td><td className="text-right text-slate-500 font-bold">{formatCurrency(c.cpc)}</td><td className="text-right font-bold text-purple-600">{formatPercent(c.vtr)}</td><td className="text-right text-teal-600 font-bold">{formatCurrency(c.cpv)}</td></tr>))}</tbody></table></div>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
+                                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                            <div className="flex items-center gap-2 mb-4 text-[#ff1c1c]"><Icon name="map-pin" /><h3 className="text-xs font-bold uppercase text-slate-500">Performance by Region</h3></div>
+                                            <div className="overflow-x-auto"><table className="w-full text-[11px]"><thead className="border-b text-slate-400"><tr><th className="text-left py-2 font-bold uppercase">Region</th><th className="text-right font-bold uppercase">CTR</th><th className="text-right font-bold uppercase">CPC</th><th className="text-right font-bold uppercase">VTR</th><th className="text-right font-bold uppercase">CPV</th></tr></thead><tbody className="divide-y">{regionStats.map((r,i) => (<tr key={i} className="hover:bg-slate-50"><td className="py-2.5 font-bold text-slate-700">{r.name}</td><td className="text-right font-bold text-blue-600">{formatPercent(r.ctr)}</td><td className="text-right text-slate-500">{formatCurrency(r.cpc)}</td><td className="text-right font-bold text-purple-600">{formatPercent(r.vtr)}</td><td className="text-right text-teal-600 font-bold">{formatCurrency(r.cpv)}</td></tr>))}</tbody></table></div>
+                                        </div>
+                                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                            <div className="flex items-center gap-2 mb-4 text-[#ff1c1c]"><Icon name="shield-check" /><h3 className="text-xs font-bold uppercase text-slate-500">Performance by Vendor</h3></div>
+                                            <div className="overflow-x-auto"><table className="w-full text-[11px]"><thead className="border-b text-slate-400"><tr><th className="text-left py-2 font-bold uppercase">Vendor</th><th className="text-right font-bold uppercase">CTR</th><th className="text-right font-bold uppercase">CPC</th><th className="text-right font-bold uppercase">VTR</th><th className="text-right font-bold uppercase">CPV</th></tr></thead><tbody className="divide-y">{vendorStats.map((v,i) => (<tr key={i} className="hover:bg-slate-50"><td className="py-2.5 font-bold text-slate-700">{v.name}</td><td className="text-right font-bold text-blue-600">{formatPercent(v.ctr)}</td><td className="text-right text-slate-500">{formatCurrency(v.cpc)}</td><td className="text-right font-bold text-purple-600">{formatPercent(v.vtr)}</td><td className="text-right text-teal-600 font-bold">{formatCurrency(v.cpv)}</td></tr>))}</tbody></table></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'settings' && (
+                                <div className="max-w-2xl mx-auto bg-white p-10 rounded-3xl shadow-xl border border-slate-200 space-y-8 no-print">
+                                    <div className="border-b pb-6">
+                                        <h2 className="text-xl font-black uppercase text-slate-800 flex items-center gap-2"><Icon name="file-spreadsheet" className="text-emerald-600" /> Live Connection</h2>
+                                        <p className="text-sm text-slate-400 mt-1 font-medium">Link your campaign CSV export to refresh intelligence metrics instantly.</p>
+                                    </div>
+                                    <div className="space-y-4">
+                                        <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">CSV Export Link</label>
+                                        <div className="flex gap-2">
+                                            <input type="text" value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv" className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-[#ff1c1c] text-sm font-medium" />
+                                            <button onClick={fetchDataFromSheet} className="bg-[#ff1c1c] text-white px-10 rounded-2xl font-black hover:opacity-90 transition-all shadow-lg shadow-red-100 uppercase">Sync</button>
+                                        </div>
+                                    </div>
+                                    <div className="bg-blue-50 p-6 rounded-2xl flex gap-4 text-blue-800 text-xs leading-relaxed">
+                                        <Icon name="info" className="shrink-0" size={18} />
+                                        <div><p className="font-bold mb-1 uppercase tracking-wide">Sync Checklist</p><p>CSV must include: <strong>Date, Brand, Vendor, Tactic, Region, Creative, Impression, Click, Reach, View, Budget.</strong></p></div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <footer className="text-center pt-16 pb-8 border-t border-slate-100 mt-12 no-print">
+                            <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em]">© 2024 Ethnicity Matters Intelligence Hub • Release v6.2 Final</p>
+                        </footer>
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
